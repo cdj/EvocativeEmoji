@@ -19,12 +19,34 @@
 
   <link rel="manifest" href="site.webmanifest">
   <meta name="theme-color" content="#fafafa">
+  <script>
+    let emojiDefine = [];
+    // https://github.com/github/gemoji/blob/master/db/emoji.json
+    fetch('./js/emoji.json')
+      .then((response) => response.json())
+      .then((data) => emojiDefine = data);
+    function log(message) {
+      document.getElementById("log").textContent += message + "\n";
+    }
+  </script>
+  <style>
+    body { background-color: #333; font-size: 1.5em; padding: 0em 0.25em; }
+    body { background: linear-gradient(to bottom, #333, #333 50%, #3a3a3a 50%, #3a3a3a); background-size: 100% 4px; }
+    pre { color: #ffedcc; white-space: pre-wrap; word-wrap: break-word; }
+    pre { text-shadow: 0 0 3px #ffa500; text-shadow: 0 0 10px #ffa500; }
+    pre::after { content: "_"; font-weight: bold; animation: blinking 0.75s step-end infinite; }
+    @keyframes blinking { from, to { visibility: hidden; } 50% { visibility: visible; } }
+  </style>
 </head>
 
 <body>
 
   <!-- Add your site or application content here -->
   <p>Hello world! This is HTML5 Boilerplate.</p>
+  <button id="startButton" class="recordButton">Start Recording</button>
+  <h1 id="emoji"></h1>
+  <pre id="log"></pre>
+  <div id="output" class="outputText"></div>
   <script src="js/app.js"></script>
 
 </body>
