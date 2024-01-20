@@ -11,10 +11,6 @@ const recognition = new SpeechRecognition();
 const speechRecognitionList = new SpeechGrammarList();
 var recognizing = false;
 var ignore_onend = false;
-var final_transcript = '';
-var final_transcripts = {};
-var start_timestamp = 0;
-var prevTranscript = "";
 
 recognition.interimResults = true;
 recognition.continuous = true;
@@ -22,7 +18,16 @@ recognition.grammars = speechRecognitionList;
 recognition.lang = "en-US";
 // recognition.maxAlternatives = 1;
 
-const emojiPhrases = {};
+String.prototype.hashCode = function() {
+    var hash = 0, i, chr;
+    if (this.length === 0) return hash;
+    for (i = 0; i < this.length; i++) {
+        chr = this.charCodeAt(i);
+        hash = ((hash << 5) - hash) + chr;
+        hash |= 0; // Convert to 32bit integer
+    }
+    return hash;
+}
 
 startButton.addEventListener('click', (event) => {
     if (recognizing) {
@@ -46,15 +51,22 @@ startButton.addEventListener('click', (event) => {
 recognition.onresult = event => {
     console.info("result", event.results);
     var interim_transcript = '';
-    outputDiv.querySelectorAll(`div.transcript[data-id="${i}"]`).forEach((el) => {
-        if(el.classList.indexOf('final') < 0) {
-            el.innerHTML = "";
+    outputDiv.querySelectorAll(`div.transcript`).forEach((el) => {
+        if(!el.classList.contains('final')) {
+            el.remove();
         }
     });
     for (var i = event.resultIndex; i < event.results.length; ++i) {
-        const transcriptDiv = outputDiv.querySelector(`div.transcript[data-id="${i}"]`) || document.createElement("div");
+        const transcriptText = event.results[i][0].transcript;
+        const transcriptHash = transcriptText.hashCode();
+        const transcript = final_transcripts[transcriptHash] || {};
+        const transcriptDiv = 
+            outputDiv.querySelector(`div.transcript[data-hash="${transcriptHash}"]`) || 
+            document.createElement("div");
+
         if(!transcriptDiv.classList.contains('transcript')) {
-            transcriptDiv.setAttribute('data-id', i);
+            // transcriptDiv.setAttribute('data-id', i);
+            transcriptDiv.setAttribute('data-hash', transcriptHash);
             transcriptDiv.classList.add('transcript');
             outputDiv.appendChild(transcriptDiv);
         }
@@ -64,30 +76,28 @@ recognition.onresult = event => {
             transcriptEmojiDiv.classList.add('transcript');
             emojiDiv.appendChild(transcriptEmojiDiv);
         }
-        const transcriptText = event.results[i][0].transcript;
-        const transcript = final_transcripts[transcriptText] || {};
-        const transcriptMatches = transcript.matches || getAllEmoji(transcriptText);
-        const transcriptHtml = transcript.html || indivLettersHtml(transcriptText, transcriptMatches);
-        const transcriptEmoji = transcript.emoji || getEmojiString(transcriptText, transcriptMatches);
         
         if (event.results[i].isFinal) {
+            const transcriptMatches = transcript.matches || getAllMatchingEmoji(transcriptText);
+            const transcriptObj = transcript.obj || getDisplayInfo(transcriptText, transcriptMatches);
             final_transcript += transcriptText;
-            final_transcripts[transcriptText] = transcript;
+            final_transcripts[transcriptHash] = transcript;
             transcript.matches = transcriptMatches;
-            transcript.html = transcriptHtml;
-            transcript.emoji = transcriptEmoji;
+            transcript.obj = transcriptObj;
             if(!transcriptDiv.classList.contains('final')) {
-                transcriptDiv.innerHTML = transcriptHtml;
+                transcriptDiv.innerHTML = transcript.obj.letterSentenceHtml;
                 transcriptDiv.classList.add('final');
             }
             if(!transcriptEmojiDiv.classList.contains('final')) {
-                transcriptEmojiDiv.textContent = transcriptEmoji;
+                transcriptEmojiDiv.textContent = transcript.obj.replacedWithEmojiString;
+                // transcriptEmojiDiv.textContent = transcript.obj.emojiString;
                 transcriptEmojiDiv.classList.add('final');
             }
         } else {
             interim_transcript += transcriptText;
-            transcriptDiv.innerHTML = transcriptHtml;
-            transcriptEmojiDiv.textContent = transcriptEmoji;
+            transcriptDiv.innerHTML = transcriptText;
+            // transcriptEmojiDiv.textContent = transcriptObj.emojiString;
+            // transcriptEmojiDiv.textContent = transcriptObj.replacedWithEmojiString;
         }
     }
     const result = final_transcript || interim_transcript; // event.results[event.results.length - 1][0].transcript;
@@ -149,32 +159,81 @@ recognition.onspeechstart = (event) => {
     console.info("speechstart", event);
 }
 
-function indivLettersHtml(full, matches) {
+function getDisplayInfo(full, matches) {
+    const toDisplay = {
+        letterSentenceHtml: "",
+        emojiString: "",
+        replacedWithEmojiString: ""
+    };
     let html = "";
-    full.split('').forEach((letter, i) => {
+    const letters = full.split('');
+    let workingString = full;
+    let workingStringUp = full.toUpperCase().replaceAll('_', ' ');;
+    console.info("getDisplayInfo matches", matches);
+    for (let l = letters.length - 1; l += 0; l--) {
+        const letter = letters[l];
+        if(matches[l]) {
+            const phrases = Object.keys(matches[l]).sort((a, b) => b.length - a.length);
+            for (let p = 0; p < phrases.length; p++) {
+                const phrase = phrases[p];
+                const last = workingStringUp.lastIndexOf(phrase);
+                console.log("lastind", workingString, phrase, last);
+                if(last >= 0) {
+                    const emoji = matches[l][phrase][0];
+                    console.info("chosen emoji", emoji);
+                    workingString = 
+                        workingString.substring(0, last) + 
+                        emoji.emoji + 
+                        workingString.substring(last + phrase.length, workingString.length);
+                    workingStringUp = 
+                        workingStringUp.substring(0, last) + 
+                        emoji.emoji + 
+                        workingStringUp.substring(last + phrase.length, workingStringUp.length);
+                    toDisplay.emojiString = emoji.emoji + toDisplay.emojiString;
+                    break;
+                }
+            }
+        }
+        
+    }
+    toDisplay.replacedWithEmojiString = workingString;
+
+    letters.forEach((letter, l) => {
         let emHtml = "";
-        if(matches[i]) {
-            for (const [phrase, emojis] of Object.entries(matches[i])) {
-                Object.keys(matches[i][phrase]).forEach((key) => {
-                    emHtml += `<div class="emoji">${key}</div>`;
-                });
+        if(matches[l]) {
+            const phrases = Object.keys(matches[l]).sort((a, b) => b.length - a.length);
+            for (let p = 0; p < phrases.length; p++) {
+                const phrase = phrases[p];
+                const emojis = matches[l][phrase]
+                for (let e = 0; e < emojis.length; e++) {
+                    const emoji = emojis[e];
+                    emHtml += `<div class="emoji">${emoji.emoji}${phrase}</div>`;
+
+                    break; // only use 1st one for perf
+                }
+
+                break; // only use 1st one for perf
             }
             emHtml = `<div class="matching-emoji">${emHtml}</div>`;
-            html += `<span class="has-matches">${letter}${emHtml}</span>`;
+            toDisplay.letterSentenceHtml += `<span class="has-matches">${letter}${emHtml}</span>`;
         } else {
-            html += `<span>${letter}</span>`;
+            toDisplay.letterSentenceHtml += `<span>${letter}</span>`;
         }
     });
-    return html;
+
+    return toDisplay;
 }
 
-function getAllEmoji(source) {
+function getAllMatchingEmoji(source) {
     console.info("searching for matching emoji...", source);
     let foundString = "";
     let found = {};
-    source = source.toUpperCase().replace('_', ' ').replace('-', ' ');
+    source = source.toUpperCase().replaceAll('_', ' ');
 
-    for (const [phrase, emojis] of Object.entries(emojiPhrases)) {
+    for (let p = 0; p < emojiPhrases.length; p++) { // const [phrase, emojis] of Object.entries(emojiPhrases)) {
+        const pObj = emojiPhrases[p];
+        const phrase = pObj.phrase;
+        const emojis = pObj.possible;
         let toSearch = source;
         let start = 0;
         while(toSearch.length > 0 && toSearch.length >= phrase.length) {
@@ -194,19 +253,6 @@ function getAllEmoji(source) {
     return found;
 }
 
-function getEmojiString(full, matches) {
-    let fullString = "";
-    for(let i = 0; i < full.length; i++) {
-        if(matches[i]) {
-            const phrases = Object.keys(matches[i]).sort((a, b) => b.length - a.length);
-            const emojis = matches[i][phrases[0]];
-            fullString += Object.keys(emojis)[0];
-            i += phrases[0].length - 1;
-        }
-    }
-    return fullString;
-}
-
 function mergeObj(primary, copyFrom) {
     for (const [key, val] of Object.entries(copyFrom)) {
         if(typeof val === 'object' && primary[key]) {
@@ -224,6 +270,44 @@ function mergeObj(primary, copyFrom) {
         }
     }
     return primary;
+}
+
+function getPhraseObj(newPhrase) {
+    let phraseObj = null;
+
+    for (let index = 0; index < emojiPhrases.length; index++) {
+        const existPObj = emojiPhrases[index];
+        if (existPObj.phrase === newPhrase) {
+            phraseObj = existPObj;
+            break;
+        }
+    }
+
+    if (!phraseObj) {
+        phraseObj = {
+            phrase: newPhrase,
+            possible: []
+        };
+        emojiPhrases.push(phraseObj);
+    }
+
+    return phraseObj;
+}
+
+
+function addTypeToPhrase(phraseObj, emojiType) {
+    let typeFound = false;
+
+    for (let j = 0; j < phraseObj.possible.length; j++) {
+        if(phraseObj.possible[j].emoji === emojiType.emoji) {
+            typeFound = true;
+            break;
+        }
+    }
+
+    if(!typeFound) {
+        phraseObj.possible.push(emojiType);
+    }
 }
 
 // https://github.com/github/gemoji/blob/master/db/emoji.json
@@ -275,39 +359,46 @@ fetch('./js/emoji.json')
 
         emojiDefine = emojiNew;
 
+        // build new obj to easily search for emoji by phrase, ie thesaurus
         emojiDefine.forEach((emojiType) => {
             if(emojiType.description) {
-                let desc = emojiType.description.toUpperCase().replace('_', ' ').replace('-', ' ');
+                let desc = emojiType.description.toUpperCase().replaceAll('_', ' ');
                 if(emojiType.category === "Smileys & Emotion") {
-                    desc = desc.replace(/\s*face\s*/ig, ' ').trim()
+                    desc = desc.replaceAll(/\s*face\s*/ig, ' ');
                 } else if(emojiType.category === "Symbols") {
-                    desc = desc.replace(/\s*square$/ig, '').trim()
+                    if(desc.search(/ (large|small|medium|medium-small) square$/ig)) return;
+                    if(desc.search(/^Japanese /ig) && desc.search(/ button$/ig)) return;
+                    desc = desc.replaceAll(/ square$/ig, '');
                 } else if(emojiType.category === "Flags") {
-                    desc = desc.replace(/^flag: */ig, '').trim()
+                    desc = desc.replaceAll(/^flag: /ig, '');
                 }
+                desc = desc.replaceAll(": ", " ").replaceAll("’", "'").trim();
                 if(desc.length > 2) {
-                    emojiPhrases[desc] = emojiPhrases[desc] || {};
-                    emojiPhrases[desc][emojiType.emoji] = emojiType;
+                    const phraseObj = getPhraseObj(desc);
+                    addTypeToPhrase(phraseObj, emojiType);
                 }
             }
             if(emojiType.aliases) {
                 emojiType.aliases.forEach((alias) => {
-                    const temp = alias.toUpperCase().replace('_', ' ').replace('-', ' ');
+                    const temp = alias.toUpperCase().replaceAll('_', ' ');
                     if(temp.length > 2) {
-                        emojiPhrases[temp] = emojiPhrases[temp] || {};
-                        emojiPhrases[temp][emojiType.emoji] = emojiType;
+                        const phraseObj = getPhraseObj(temp);
+                        addTypeToPhrase(phraseObj, emojiType);
                     }
                 });
             }
             if(emojiType.tags) {
                 emojiType.tags.forEach((tag) => {
-                    const temp = tag.toUpperCase().replace('_', ' ').replace('-', ' ');
+                    const temp = tag.toUpperCase().replaceAll('_', ' ');
                     if(temp.length > 2) {
-                        emojiPhrases[temp] = emojiPhrases[temp] || {};
-                        emojiPhrases[temp][emojiType.emoji] = emojiType;
+                        const phraseObj = getPhraseObj(temp);
+                        addTypeToPhrase(phraseObj, emojiType);
                     }
                 });
             }
         });
+
+        // reverse sort so longer phrases match first
+        emojiPhrases.sort((a, b) => (a.phrase > b.phrase ? -1 : 1));
     });
 

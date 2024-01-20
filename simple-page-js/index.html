@@ -25,6 +25,11 @@
     let emojiJava = [];
     let emojiGem = [];
     let emoji4j = [];
+    let emojiPhrases = [];
+    var final_transcript = '';
+    var final_transcripts = {};
+    var start_timestamp = 0;
+    var prevTranscript = "";
   </script>
   <style>
     /* console look: https://gist.github.com/chr15m/ba1272ef905bafce0b51068c7d93193b */
@@ -63,9 +68,11 @@
       clear: both;
       float: left;
       font-size: 45px;
+      text-wrap: nowrap;
     }
     .transcript {
       display: inline;
+      color: white;
     }
   </style>
 </head>
